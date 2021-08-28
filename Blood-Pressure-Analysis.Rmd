@@ -4,8 +4,8 @@ editor_options:
   chunk_output_type: inline
 ---
 ---
-title: "STA302 - FINAL PROJECT FILE"
-output: slide_presentation
+title: "Blood-Pressure-Analysis"
+output: pdf
   ---
 
 ```{r setup, include=FALSE}
