@@ -1,0 +1,700 @@
+---
+output: pdf_document
+editor_options: 
+  chunk_output_type: inline
+---
+---
+title: "STA302 - FINAL PROJECT FILE"
+output: slide_presentation
+  ---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+```
+
+
+```{r}
+library(tidyverse)
+library(NHANES)
+library(car)
+library(glmnet)
+library(rms)
+library(MASS)
+small.nhanes <- na.omit(NHANES[NHANES$SurveyYr=="2011_12"
+& NHANES$Age > 17,c(1,3,4,8:11,13,17,20,21,25,46,50,51,52,61)])
+small.nhanes <- as.data.frame(small.nhanes %>%
+group_by(ID) %>% filter(row_number()==1) )
+nrow(small.nhanes)
+## Checking whether there are any ID that was repeated. If not ##
+## then length(unique(small.nhanes$ID)) and nrow(small.nhanes) are same ##
+length(unique(small.nhanes$ID))
+
+```
+```{r}
+set.seed(1006092577)
+train <- small.nhanes[sample(seq_len(nrow(small.nhanes)), size = 500),]
+nrow(train)
+length(which(small.nhanes$ID %in% train$ID))
+test <- small.nhanes[!small.nhanes$ID %in% train$ID,]
+nrow(test)
+train <- train[-c(1)]
+test <- test[-c(1)]
+```
+
+First let's take a brief look at the 17 different predictors that we can use.
+### Gender ###
+Categorical - This is an interesting one to look at, to see if there are any 
+biological differences between male and female in terms of blood pressure.
+
+### Age ###
+Continuous - Age definitely will play a role in determine how healthy one is.
+
+### Race ###
+Categorical - Is there a clear distinction between races in terms of blood pressure? Perhaps biological? Or maybe it is a result of different cultures/lifestyles? 
+It is unclear whether this predictor actually will play a role in prediction.
+
+### Education ###
+Categorical - Level of education is an interesting predictor to check - maybe
+those more highly educated or healthier as a result?
+
+### MaritalStatus ###
+Categorical - A predictor that doesn't seem to be able to help explain/predict
+one's blood pressure, but this analysis will still try to take it into account.
+
+### HHIncome ###
+Categorical - A predictor that separates individuals into brackets of income.
+Perhaps higher income results in healthier lifestyles?
+
+### Poverty ###
+Continuous - Similar to HHIncome.
+
+### Weight ###
+Continuous - Weight is always a decent indicator for health. However it can be
+misleading - heavier individuals can either be unhealthy in terms of obesity
+or healthy due to larger muscle mass or height.
+
+### Height ###
+Continuous - Height seems less likely to be an adequate predictor on blood 
+pressure, however it may be indicator of other factors that affect one's 
+blood pressure. 
+
+### BMI ###
+Continuous - Similar to weight.
+
+### Depressed ###
+Categorical - This is a very interesting predictor to look out. One can say that
+mental health can play a role in physical health. Specifically those who are happier
+with themselves may be healthier vs. depressed individuals who neglect themselves.
+
+### SleepTrouble ###
+Categorical - This is an interesting predictor. Trouble sleeping may be a symptom 
+of unhealthy blood pressure instead of the other way around, as well as just deeply
+correlated with the Depressed predictor.
+
+### PhysActive ###
+Categorical - This is self-explanatory. Being physically active surely must play
+an effect on blood pressure.
+
+### SmokeNow ###
+Categorical - Perhaps the most important predictor in this dataset.
+
+Now that we have looked at the predictors, we should clean up the dataset. We are 
+primarily concerned with the predictor SmokeNow. There are a number of predictors
+here that are not going to be very useful for analysis. For instance Education, 
+MaritalStatus, HHIncome, Poverty, Depressed are not very useful predictors (or if they are,
+then they are explained by other factors). We can remove BMI as well, since Weight
+and Height are both used to find BMI, and remove SleepHrsNight, since this is very
+correlated with SleepTrouble. Then,
+
+For the heck of it, let's try to make a full model based on all 17 variables. Since we have a very large observation pool (500 in training dataset and 143 in the testing dataset), the risk of overfitting is not as high. 
+
+```{r}
+model.full <- lm(BPSysAve ~ ., data = train)
+summary(model.full)
+anova(model.full)
+vif(model.full)
+```
+```{r}
+pdf("VIF_1.pdf", height = 8, width = 16)
+par(family = 'mono', mfrow = c(1,2))
+plot(train$HHIncome, train$Poverty, main = "Poverty vs. HHIncome",
+     type = "p", xlab = "HHIncome", 
+     ylab = "Poverty", cex.lab = 1.2,
+     col = "red")
+dev.off()
+```
+
+```{r}
+train <- train[-c(6, 10)]
+test <- test[-c(6, 10)]
+# Refit the full model and check for VIFs again
+model.full <- lm(BPSysAve ~ ., data = train)
+summary(model.full)
+anova(model.full)
+p <- length(model.full$coefficients) - 1
+vif(model.full)
+```
+Overall the VIFs are less than 5. Lucky! 
+
+Okay this model is messy. Nearly every predictor has a high p-value, including SmokeNow.
+This obviously is a problem. (Ovefitting?) Check the relationship with SmokeNow.
+
+```{r}
+# The important one!
+model.15 <- lm(BPSysAve ~ SmokeNow, data = train)
+summary(model.15)
+anova(model.15)
+```
+Clearly we see there is a linear relationship between SmokeNow and BPSysAve. 
+
+
+### Diagnostic Checking for Full Model ###
+Let's do some model diagnostics!!! 
+Check fitted values vs standardized residuals. If we see any pattern then we know 
+```{r}
+resid <- rstudent(model.full)
+fitted <- predict(model.full)
+
+pdf("model_full.pdf", height = 8, width = 16)
+par(family = 'mono', mfrow = c(1,2))
+plot(model.full)
+#qqnorm(resid)
+#qqline(resid)
+#plot(resid ~ fitted, type = "p", xlab = "Fitted Values", 
+#     ylab = "Standardized Residual", cex.lab = 1.2,
+#     col = "red")
+#lines(lowess(fitted, resid), col = "blue")
+#dev.off()
+plot(train$BPSysAve ~ fitted, type = "p", xlab = "Fitted Values", 
+     ylab = "BPSysAve", cex.lab = 1.2,
+     col = "red")
+abline(lm(train$BPSysAve ~ fitted), lwd = 2, col = "blue")
+lines(lowess(fitted, train$BPSysAve), col = "red")
+dev.off()
+
+```
+The Q-Q plot with the standardized residuals are are one-to-one except for the extreme 
+quantiles. This likely means the standard residuals deviate from the normal. Our fitted values
+to Standardized Residual plot indicates a somewhat linear pattern by lowess, however clearly
+the errors have high variance, as the plot instead of looking linear, looks more
+uniformly "cloud-like" around a line. This indicates errors are linear but also have high
+variance. We can also take a look at the response vs. fitted plots.
+
+```{r}
+pdf("model_full2.pdf", height = 8, width = 16)
+plot(model.full)
+par(family = 'mono')
+plot(train$BPSysAve ~ fitted, type = "p", xlab = "Fitted Values", 
+     ylab = "BPSysAve", cex.lab = 1.2,
+     col = "red")
+abline(lm(train$BPSysAve ~ fitted), lwd = 2, col = "blue")
+lines(lowess(fitted, train$BPSysAve), col = "red")
+dev.off()
+```
+
+Once again we see that the lowess line is close to the actual line. That is, the relationship
+between fitted values and the actual values is linear in nature. Therefore once again
+we see that the linearity assumption is met, however the large variance around the line
+is concerning, especially since the main goal is prediction and not accuracy. Therefore
+no transformation is necessary at the moment. We can check for outliers to see if we can 
+improve our model. (Remember that increasing the number of predictors usually results
+in higher variance, which is why shrinkage methods are needed.)
+
+### Leverage/Influential/Outlier Points for Full Model ###
+
+```{r}
+h <- hatvalues(model.full)
+thresh <- 2 * (dim(model.matrix(model.full))[2])/nrow(small.nhanes)
+w <- which(h > thresh)
+w
+#small.nhanes[w,]
+```
+We clearly have a number of leverage points - specifically points that are 
+"influential" on the full model. However this does not mean these points are
+"bad" or "good" for our model without further diagnostics.
+```{r}
+# We have 15 predictors...
+D <- cooks.distance(model.full)
+which(D > qf(0.5, p+1, nrow(train)-p-1))
+# Using a cutoff comparing to 50-th percentile of F dist with p+1 and n-p-1 df
+# results in no points.
+# Try plotting Cook's distance to find.
+
+#Look at plots of Cook's
+pdf("cook_full.pdf", height = 8, width = 12)
+par(family = 'mono')
+plot(train$BPSysAve, D, type = "p", xlab = "BpSysAve", ylab = "Cook's Distances",
+     main = "Cook's Distance")
+abline(h = 2, lty = 2)
+abline(h = -2, lty = 2)
+text(train$BPSysAve[D > 4/(nrow(train)-p-1)]+3, D[D > 4/(nrow(train)-p-1)], 
+     labels = which(D > 4/(nrow(train)-p-1)))
+dev.off()
+```
+Interestingly there are no values over the threshold of Cook's distance using the
+normal MLR cutoff.
+
+We'll move onto DFFITS and DFBETAS.
+```{r}
+D <- cooks.distance(model.full)
+which(D > qf(0.5, p+1, nrow(train)-p-1))
+## DFFITS ##
+dfits <- dffits(model.full)
+which(abs(dfits) > 2*sqrt((p+1)/nrow(train)))
+
+## DFBETAS ##
+dfb <- dfbetas(model.full)
+which(abs(dfb[,1]) > 2/sqrt(nrow(train)))
+```
+DFFITS provides a larger amount of "influential points" than DFBETAS. Since we have 500
+observations, it may be hard to determine which influential points should be removed,
+especially since Cook's Distance did not determine any points to be influential.
+
+Now that model diagnostics are complete, let's try looking at different models.
+
+### DIFFERENT MODELS ###
+For curiosity's sake, let me create my own model based on assumptions, presumptions,
+intuition and prior knowledge, i.e. create a model without any selection tools, based off
+my own bias and knowledge. We can compare this fun model with the calculated models later
+on to see if my pre-disposed knowledge works out. 
+
+(1) Typically we want smaller models (less predictors). This is to help with simplicity,
+as well as avoid multicollinearity. 
+
+(2) From the 15 possible predictors I can easily determine which predictors wouldn't
+help with determining blood pressure. The most obvious are - Education, MaritalStatus and
+Depressed. Poverty is by no means a determining factor of blood pressure as well.
+
+(3) There are a number of predictors that easily are correllated. For example, weight, height
+and BMI are correlated. Since both weight and height are accounted for BMI, I will
+exclude weight and height in preference of BMI. Poverty and HHIncome are also similar.
+I will choose Poverty due to simplicity (not categorical) and being continuous means
+it will be more precise. SleepHrsNight and SleepTrouble are very similar, and so
+for similar reasons I will choose SleepHrsNight. 
+
+As a result I will make a model as follows: BPSysAve ~ Gender, Age, Poverty, BMI, 
+SleepHrsNight, PhysActive, SmokeNow, for a total of 7 predictors. 
+
+```{r}
+model.fun <- lm(BPSysAve ~ Gender + Age + Height + Weight 
+                + PhysActive + SmokeNow, data = train)
+summary(model.fun)
+anova(model.fun)
+```
+Notice once again we have relatively high p-values for peculiar predictors - specifically
+SmokeNow, despite being one of the most "obvious" cases of having an effect on 
+blood pressure. Before we do any diagnostics/analysis, let use build a few other 
+models to compare. This means model selection!
+```{r}
+criteria <- function(model) {
+    n <- length(model$residuals)
+    p <- length(model$coefficients) - 1
+    RSS <- sum(model$residuals^2)
+    R2 <- summary(model)$r.squared
+    R2.adj <- summary(model)$adj.r.squared
+    AIC <- n*log(RSS/n) + 2*p
+    BIC <- n*log(RSS/n) + (p+2)*log(n)
+    results <- c(R2, R2.adj, AIC, BIC)
+    names(results) <- c("R Squared", "Adjusted R Squared", "AIC", "BIC")
+    return(results)
+}
+
+```
+Let us make two models from stepwise selection - one from AIC and one from BIC. 
+We do not care about AIC Corrected, as the dataset is large enough. Let us use 
+both direction stepwise selection. First is AIC...
+
+```{r}
+model.AIC <- step(model.full, trace = 0, k = 2, direction = "both") 
+summary(model.AIC)
+anova(model.AIC)
+
+empty_model <- lm(BPSysAve ~ 1, data = train)
+model.AIC2 <-step(empty_model, trace = 0, k = 2, direction = "forward",
+                  scope=list(upper = model.full, lower=empty_model))
+```
+
+Huh, interestingly SmokeNow is not present.
+
+```{r}
+# Add this line to the beginning to make things easier.
+n <- nrow(train)
+model.BIC <- step(model.full, trace = 0, k = log(n), direction = "backward") 
+summary(model.BIC)
+anova(model.BIC)
+```
+
+Once again, we are missing SmokeNow. This doesn't seen to make the most sense
+in terms of my own intuition. One more model can be made using one more variation 
+selection method - LASSO. Notice we don't use ridge regression since it is not
+very useful for variable selection. Then,
+
+```{r}
+set.seed(1006092577)
+x_train <- model.matrix(BPSysAve ~ .,data = train)
+cv.lasso <- cv.glmnet(x = x_train, y = train$BPSysAve, standardize = T, alpha = 1)
+
+plot(cv.lasso)
+best.lambda <- cv.lasso$lambda.1se
+best.lambda
+co<-coef(cv.lasso, s = "lambda.1se")
+co
+```
+Wow! After performing LASSO penalty on the full model we result in only one
+predictor left - Age. Therefore let us create a model based off LASSO. This means 
+fitting a single linear regression with merely age.
+```{r}
+model.lasso <- lm(BPSysAve ~ Age, data = train)
+summary(model.lasso)
+anova(model.lasso)
+```
+Awesome, we have a small p-value for this SLR. This means that Age does have a linear
+relationship with BPSysAve. We can easily check this with a plot comparing fitted values
+with the actual values (due to it being Simple Linear Regression). Then,
+
+```{r}
+pdf("LASSO_Plot_FittedVSBPSysAve.pdf", height = 8, width = 16)
+plot(train$Age, train$BPSysAve, type = "p", xlab = "Age", ylab = "BPSysAve",
+     main = "Age vs. BPSysave - LASSO")
+abline(lm(BPSysAve ~ Age, data = train), lwd = 2, col = "blue")
+dev.off()
+```
+
+
+Let us check the variance inflation factor of each model.
+```{r}
+vif(model.full)
+```
+We see that with the full model we have some high GVIF (general VIF) values. These
+occur with the expected predictors - between HHIncome and Poverty, and between Weight,
+Height and BMI. Let us not remove any predictors since this model's entire purpose
+is to represent the full model. 
+```{r}
+vif(model.fun)
+```
+This is great, as there is low correlation between the predictors. Our assumptions
+resulted in a model that does not suffer from multicollinearity. 
+```{r}
+vif(model.AIC)
+```
+```{r}
+vif(model.BIC)
+```
+
+
+```{r}
+criteria(model.full)
+criteria(model.fun)
+criteria(model.AIC)
+criteria(model.BIC)
+criteria(model.lasso)
+```
+
+### Model Diagnostics for all Models ###
+We have finished with our models, now time to look at plots!
+```{r}
+resid <- rstudent(model.fun)
+fitted <- predict(model.fun)
+
+# The 4 plots -> residual vs fitted, Q-Q plots, std residual vs fitted, std residual
+# vs leverage
+pdf("model_fun.pdf", height = 8, width = 16)
+par(family = 'mono', mfrow = c(1,2))
+plot(model.fun)
+# Plot the fitted vs response(BPSysAve) for normality assumption
+plot(train$BPSysAve ~ fitted, type = "p", xlab = "Fitted Values", 
+     ylab = "BPSysAve", cex.lab = 1.2,
+     col = "red")
+abline(lm(train$BPSysAve ~ fitted), lwd = 2, col = "blue")
+lines(lowess(fitted, train$BPSysAve), col = "red")
+dev.off()
+
+```
+We can do this for the other models as well.
+
+```{r}
+resid <- rstudent(model.AIC)
+fitted <- predict(model.AIC)
+
+pdf("model_AIC.pdf", height = 8, width = 16)
+par(family = 'mono', mfrow = c(1,2))
+plot(model.AIC)
+# Plot the fitted vs response(BPSysAve) for normality assumption
+plot(train$BPSysAve ~ fitted, type = "p", xlab = "Fitted Values", 
+     ylab = "BPSysAve", cex.lab = 1.2,
+     col = "red")
+abline(lm(train$BPSysAve ~ fitted), lwd = 2, col = "blue")
+lines(lowess(fitted, train$BPSysAve), col = "red")
+dev.off()
+
+
+```
+```{r}
+resid <- rstudent(model.BIC)
+fitted <- predict(model.BIC)
+
+pdf("model_BIC.pdf", height = 8, width = 16)
+par(family = 'mono', mfrow = c(1,2))
+plot(model.BIC)
+# Plot the fitted vs response(BPSysAve) for normality assumption
+plot(train$BPSysAve ~ fitted, type = "p", xlab = "Fitted Values", 
+     ylab = "BPSysAve", cex.lab = 1.2,
+     col = "red")
+abline(lm(train$BPSysAve ~ fitted), lwd = 2, col = "blue")
+lines(lowess(fitted, train$BPSysAve), col = "red")
+dev.off()
+```
+
+
+```{r}
+resid <- rstudent(model.lasso)
+fitted <- predict(model.lasso)
+
+pdf("model_LASSO.pdf", height = 8, width = 16)
+par(family = 'mono', mfrow = c(1,2))
+plot(model.lasso)
+# Plot the fitted vs response(BPSysAve) for normality assumption
+plot(train$BPSysAve ~ fitted, type = "p", xlab = "Fitted Values", 
+     ylab = "BPSysAve", cex.lab = 1.2,
+     col = "red")
+abline(lm(train$BPSysAve ~ fitted), lwd = 2, col = "blue")
+lines(lowess(fitted, train$BPSysAve), col = "red")
+dev.off()
+```
+Plot 1/3: This is a plot of fitted values vs. residuals. This is a very similar plot
+to plot 3, which is instead a plot of square roots of standardized residuals instead. 
+Both are used in the same interpretation. These plots are used to test assumptions 
+related to the errors such as homoscedasticity. If the plots result in a somewhat 
+flat line with points randomly (uniformly) scattered around the line, then we say 
+that the assumption of constant variance is met, and possibly that the errors are
+independent. All 5 plots from our models do not display no \textbf{evident pattern}.
+This means all 5 of our models satisfy the independence of errors and homoscedasticity
+assumptions. This means we may not need to use transformations on our models.
+
+Plot 2: This is a Normal Q-Q plot, which seeks to challenge the assumption of normality
+of errors. Notice that this assumption and the constant variance assumption are the
+most important assumptions to have to be able to apply inferential tools. We know if 
+the Normality assumption is met if we see a one-to-one relationship between the quantiles,
+as this proves normality. Notice all 5 models provide a one-to-one relationship except
+on the extreme values. However this is not very prominent, since this only occurs on
+the extreme quantiles (and thus is rare). We say that the normality assumption is met
+on every model. 
+
+Plot 4: This plot is a Cook's distance plot. This is used to help find influential points.
+Alongside DFFITS and DFBETAs, we can determine if there are any bad leverage points
+that we may wish to remove from the data. We see from every model that the Cook's distance
+values are very low - with the highest being from the full model. There are two things
+to consider with Cook's distance values - the cutoff, and the gaps in the plot. Every
+plot has the points densely packed closed, with a few outliers outside of the main 
+group, however these outliers do not deviate very much. The cutoff of Cook's distance
+is based off the 50th percentile of the F distribution with degrees of freedom $p+1$
+and $n-p-1$. Since we have such a large $n$ value, being 500 in the train data, then
+our cutoff value will be very large - close to 1. It is safe to say that none of the
+points in any plot are anywhere near to 1. This means that we do not have any influential
+points to consider removing from our data. We can further look at DFBETAs and DFFITS 
+for more clarification. 
+
+```{r}
+## Cook's Distance ##
+D <- cooks.distance(model.full)
+which(D > qf(0.5, p+1, nrow(train)-p-1))
+
+## DFFITS ##
+dfits <- dffits(model.full)
+which(abs(dfits) > 2*sqrt((p+1)/nrow(train)))
+
+## DFBETAS ##
+dfb <- dfbetas(model.full)
+which(abs(dfb[,1]) > 2/sqrt(nrow(train)))
+```
+```{r}
+D <- cooks.distance(model.fun)
+which(D > qf(0.5, p+1, nrow(train)-p-1))
+## DFFITS ##
+dfits <- dffits(model.fun)
+which(abs(dfits) > 2*sqrt((p+1)/nrow(train)))
+
+## DFBETAS ##
+dfb <- dfbetas(model.fun)
+which(abs(dfb[,1]) > 2/sqrt(nrow(train)))
+```
+```{r}
+D <- cooks.distance(model.AIC)
+which(D > qf(0.5, p+1, nrow(train)-p-1))
+## DFFITS ##
+dfits <- dffits(model.AIC)
+which(abs(dfits) > 2*sqrt((p+1)/nrow(train)))
+
+## DFBETAS ##
+dfb <- dfbetas(model.AIC)
+which(abs(dfb[,1]) > 2/sqrt(nrow(train)))
+```
+```{r}
+D <- cooks.distance(model.BIC)
+which(D > qf(0.5, p+1, nrow(train)-p-1))
+## DFFITS ##
+dfits <- dffits(model.BIC)
+which(abs(dfits) > 2*sqrt((p+1)/nrow(train)))
+
+## DFBETAS ##
+dfb <- dfbetas(model.BIC)
+which(abs(dfb[,1]) > 2/sqrt(nrow(train)))
+```
+```{r}
+D <- cooks.distance(model.lasso)
+which(D > qf(0.5, p+1, nrow(train)-p-1))
+## DFFITS ##
+dfits <- dffits(model.lasso)
+which(abs(dfits) > 2*sqrt((p+1)/nrow(train)))
+
+## DFBETAS ##
+dfb <- dfbetas(model.lasso)
+which(abs(dfb[,1]) > 2/sqrt(nrow(train)))
+```
+As observed, none of the models had any large influential points as determined by Cook's
+Distance. DFFITS and DFBETAs derived somewhat different results as well. For simplicity
+sake, we will keep every point in the train dataset. This is because lack of values
+in Cook's distance as well as inconsistent results from the other methods leads to
+inconclusive evidence of any major influential points. Finally, onto model validation!
+
+
+### Model Validation ###
+Now that we have created a few models, we want to test the prediction performance
+between them to choose the "best one." We can first start with cross-validation.
+This will help us inform our thoughts on overfitting that we predict with every model
+other than BIC and LASSO. Cross-validation is a resampling method. 
+
+```{r}
+# First create the "labels" from each model to perform ols/calibrate on them
+full_labels <- attr(terms(model.full), "term.labels")   
+AIC_labels <- attr(terms(model.AIC), "term.labels")
+BIC_labels <- attr(terms(model.BIC), "term.labels")
+fun_labels <- attr(terms(model.fun), "term.labels")
+lasso_labels <- attr(terms(model.lasso), "term.labels")
+
+# Now use ols! 
+ols.full <- ols(BPSysAve ~ ., data = train[,which(colnames(train) %in% 
+               c(full_labels, "BPSysAve"))], x=T, y=T, model = T)
+ols.aic <- ols(BPSysAve ~ ., data = train[,which(colnames(train) %in% 
+               c(AIC_labels, "BPSysAve"))], x=T, y=T, model = T)
+ols.bic <- ols(BPSysAve ~ ., data = train[,which(colnames(train) %in% 
+               c(BIC_labels, "BPSysAve"))], x=T, y=T, model = T)
+ols.fun <- ols(BPSysAve ~ ., data = train[,which(colnames(train) %in% 
+               c(fun_labels, "BPSysAve"))], x=T, y=T, model = T)
+ols.lasso <- ols(BPSysAve ~ ., data = train[,which(colnames(train) %in% 
+               c(lasso_labels, "BPSysAve"))], x=T, y=T, model = T)
+```
+
+Before we do any interpretation, let us create all 5 calibration plots.
+```{r}
+# Finally we can calibrate. We can also check the prediction error using the test dataset.
+full.cross <- calibrate(ols.full, method = "crossvalidation", B = 10)
+## Calibration plot ##
+pdf("full_cross.pdf", height = 8, width = 16)
+plot(full.cross, las = 1, xlab = "Predicted BPSysAve", main = 
+       "Cross-Validation Calibration with Full Model")
+dev.off()
+
+# Prediction Error
+pred.full <- predict(model.full, newdata = test[,which(colnames(train) %in% 
+                                                      c(full_labels, "BPSysAve"))])
+## Prediction error ##
+pred.error.full <- mean((test$BPSysAve - pred.full)^2)
+```
+
+
+```{r}
+aic.cross <- calibrate(ols.aic, method = "crossvalidation", B = 10)
+## Calibration plot ##
+pdf("aic_cross.pdf", height = 8, width = 16)
+plot(aic.cross, las = 1, xlab = "Predicted BPSysAve", main = 
+       "Cross-Validation calibration with AIC Model")
+dev.off()
+
+# Prediction Error
+pred.aic <- predict(model.AIC, newdata = test[,which(colnames(train) %in% 
+                                                      c(AIC_labels, "BPSysAve"))])
+## Prediction error ##
+pred.error.aic <- mean((test$BPSysAve - pred.aic)^2)
+```
+```{r}
+bic.cross <- calibrate(ols.bic, method = "crossvalidation", B = 10)
+## Calibration plot ##
+pdf("bic_cross.pdf", height = 8, width = 16)
+plot(bic.cross, las = 1, xlab = "Predicted BPSysAve", main = 
+       "Cross-Validation calibration with BIC Model")
+dev.off()
+
+# Prediction Error
+pred.bic <- predict(model.BIC, newdata = test[,which(colnames(train) %in% 
+                                                      c(BIC_labels, "BPSysAve"))])
+## Prediction error ##
+pred.error.bic <- mean((test$BPSysAve - pred.bic)^2)
+```
+```{r}
+fun.cross <- calibrate(ols.fun, method = "crossvalidation", B = 10)
+## Calibration plot ##
+pdf("fun_cross.pdf", height = 8, width = 16)
+plot(fun.cross, las = 1, xlab = "Predicted BPSysAve", main = 
+       "Cross-Validation calibration with Test Model")
+dev.off()
+
+# Prediction Error
+pred.fun <- predict(model.fun, newdata = test[,which(colnames(train) %in% 
+                                                      c(fun_labels, "BPSysAve"))])
+## Prediction error ##
+pred.error.fun <- mean((test$BPSysAve - pred.fun)^2)
+pred.error.fun
+```
+```{r}
+lasso.cross <- calibrate(ols.lasso, method = "crossvalidation", B = 10)
+## Calibration plot ##
+pdf("lasso_cross.pdf", height = 8, width = 16)
+plot(lasso.cross, las = 1, xlab = "Predicted BPSysAve", main = 
+       "Cross-Validation calibration with LASSO Model")
+dev.off()
+
+# Prediction Error
+pred.lasso <- predict(model.lasso, newdata = test[,which(colnames(train) %in% 
+                                                      c(lasso_labels, "BPSysAve"))])
+## Prediction error ##
+pred.error.lasso <- mean((test$BPSysAve - pred.lasso)^2)
+
+```
+
+We can group together all 5 prediction errors to compare.
+```{r}
+pred.error.all <- c(pred.error.full, pred.error.fun, pred.error.aic, pred.error.bic, 
+                    pred.error.lasso)
+pred.error.all
+```
+We have in order the prediction error of the full model, then fun, AIC, BIC and finally
+Lasso model. We see that the fun model has the lowest prediction error, followed by AIC
+and BIC. 
+
+Let's look at the calibration charts. We easily see that the LASSO and Full model
+are the "worse models" in terms of cross-validation. The Fun model would be better due to
+conforming to the line more closely.
+
+
+### Choosing the Best Model ###
+We've come to the point where we need to choose a model. Clearly the full model is not 
+the one we want. This is because we clearly see there is multicollinearity within most
+of its parameters, and having very high p-values. 
+
+Look at Fun model without SmokeNow! Wow lower prediction error?
+```{r}
+# Without SmokeNow!!!
+model.fun2 <- lm(BPSysAve ~ Gender + Age + Height + Weight 
+                + PhysActive, data = train)
+summary(model.fun2)
+anova(model.fun2)
+
+fun_labels <- attr(terms(model.fun2), "term.labels")
+pred.fun <- predict(model.fun2, newdata = test[,which(colnames(train) %in% 
+                                                      c(fun_labels, "BPSysAve"))])
+## Prediction error ##
+pred.error.fun <- mean((test$BPSysAve - pred.fun)^2)
+pred.error.fun
+```
+  
