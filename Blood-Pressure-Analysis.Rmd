@@ -5,7 +5,7 @@ editor_options:
 ---
 ---
 title: "Blood-Pressure-Analysis"
-output: pdf
+output: pdf_document
   ---
 
 ```{r setup, include=FALSE}
@@ -27,9 +27,13 @@ group_by(ID) %>% filter(row_number()==1) )
 nrow(small.nhanes)
 ## Checking whether there are any ID that was repeated. If not ##
 ## then length(unique(small.nhanes$ID)) and nrow(small.nhanes) are same ##
-length(unique(small.nhanes$ID))
+length((small.nhanes$ID))
+
+mean((small.nhanes$Age))
+mean((small.nhanes$Gender) == 'male')
 
 ```
+
 ```{r}
 set.seed(1006092577)
 train <- small.nhanes[sample(seq_len(nrow(small.nhanes)), size = 500),]
@@ -39,6 +43,19 @@ test <- small.nhanes[!small.nhanes$ID %in% train$ID,]
 nrow(test)
 train <- train[-c(1)]
 test <- test[-c(1)]
+
+```
+
+```{r}
+train <- train[-c(6)] # remove Income
+model.full <- lm(BPSysAve ~ ., data = train)
+vif(model.full)
+
+```
+```{r}
+train <- train[-c(8)] # remove poverty
+model.full <- lm(BPSysAve ~ ., data = train)
+vif(model.full)
 ```
 
 First let's take a brief look at the 17 different predictors that we can use.
@@ -108,25 +125,14 @@ correlated with SleepTrouble. Then,
 
 For the heck of it, let's try to make a full model based on all 17 variables. Since we have a very large observation pool (500 in training dataset and 143 in the testing dataset), the risk of overfitting is not as high. 
 
-```{r}
-model.full <- lm(BPSysAve ~ ., data = train)
-summary(model.full)
-anova(model.full)
-vif(model.full)
-```
-```{r}
-pdf("VIF_1.pdf", height = 8, width = 16)
-par(family = 'mono', mfrow = c(1,2))
-plot(train$HHIncome, train$Poverty, main = "Poverty vs. HHIncome",
-     type = "p", xlab = "HHIncome", 
-     ylab = "Poverty", cex.lab = 1.2,
-     col = "red")
-dev.off()
-```
 
 ```{r}
-train <- train[-c(6, 10)]
-test <- test[-c(6, 10)]
+train <- small.nhanes[sample(seq_len(nrow(small.nhanes)), size = 500),]
+test <- small.nhanes[!small.nhanes$ID %in% train$ID,]
+train <- train[-c(1)]
+test <- test[-c(1)]
+train <- train[-c(5, 6, 10, 12, 14)]
+test <- test[-c(5, 6, 10, 12, 14)]
 # Refit the full model and check for VIFs again
 model.full <- lm(BPSysAve ~ ., data = train)
 summary(model.full)
@@ -268,12 +274,12 @@ Depressed. Poverty is by no means a determining factor of blood pressure as well
 (3) There are a number of predictors that easily are correllated. For example, weight, height
 and BMI are correlated. Since both weight and height are accounted for BMI, I will
 exclude weight and height in preference of BMI. Poverty and HHIncome are also similar.
-I will choose Poverty due to simplicity (not categorical) and being continuous means
+I will choose Poverty due to simplicity (not categorical) a     nd being continuous means
 it will be more precise. SleepHrsNight and SleepTrouble are very similar, and so
 for similar reasons I will choose SleepHrsNight. 
 
-As a result I will make a model as follows: BPSysAve ~ Gender, Age, Poverty, BMI, 
-SleepHrsNight, PhysActive, SmokeNow, for a total of 7 predictors. 
+As a result I will make a model as follows: BPSysAve ~ Gender, Age, Poverty, 
+SleepHrsNight, PhysActive, SmokeNow, for a total of 6 predictors. 
 
 ```{r}
 model.fun <- lm(BPSysAve ~ Gender + Age + Height + Weight 
@@ -590,7 +596,7 @@ Before we do any interpretation, let us create all 5 calibration plots.
 # Finally we can calibrate. We can also check the prediction error using the test dataset.
 full.cross <- calibrate(ols.full, method = "crossvalidation", B = 10)
 ## Calibration plot ##
-pdf("full_cross.pdf", height = 8, width = 16)
+pdf("full_cross.pdf", height = 6, width = 6)
 plot(full.cross, las = 1, xlab = "Predicted BPSysAve", main = 
        "Cross-Validation Calibration with Full Model")
 dev.off()
@@ -606,7 +612,7 @@ pred.error.full <- mean((test$BPSysAve - pred.full)^2)
 ```{r}
 aic.cross <- calibrate(ols.aic, method = "crossvalidation", B = 10)
 ## Calibration plot ##
-pdf("aic_cross.pdf", height = 8, width = 16)
+pdf("aic_cross.pdf", height = 6, width = 6)
 plot(aic.cross, las = 1, xlab = "Predicted BPSysAve", main = 
        "Cross-Validation calibration with AIC Model")
 dev.off()
@@ -620,7 +626,7 @@ pred.error.aic <- mean((test$BPSysAve - pred.aic)^2)
 ```{r}
 bic.cross <- calibrate(ols.bic, method = "crossvalidation", B = 10)
 ## Calibration plot ##
-pdf("bic_cross.pdf", height = 8, width = 16)
+pdf("bic_cross.pdf", height = 6, width = 6)
 plot(bic.cross, las = 1, xlab = "Predicted BPSysAve", main = 
        "Cross-Validation calibration with BIC Model")
 dev.off()
@@ -634,7 +640,7 @@ pred.error.bic <- mean((test$BPSysAve - pred.bic)^2)
 ```{r}
 fun.cross <- calibrate(ols.fun, method = "crossvalidation", B = 10)
 ## Calibration plot ##
-pdf("fun_cross.pdf", height = 8, width = 16)
+pdf("fun_cross.pdf", height = 6, width = 6)
 plot(fun.cross, las = 1, xlab = "Predicted BPSysAve", main = 
        "Cross-Validation calibration with Test Model")
 dev.off()
@@ -649,7 +655,7 @@ pred.error.fun
 ```{r}
 lasso.cross <- calibrate(ols.lasso, method = "crossvalidation", B = 10)
 ## Calibration plot ##
-pdf("lasso_cross.pdf", height = 8, width = 16)
+pdf("lasso_cross.pdf", height = 6, width = 6)
 plot(lasso.cross, las = 1, xlab = "Predicted BPSysAve", main = 
        "Cross-Validation calibration with LASSO Model")
 dev.off()
